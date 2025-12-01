@@ -96,75 +96,52 @@ def generate_placeholder(product_name: str) -> str:
 # -------------------------
 @st.cache_data
 def load_products(product_file=PRODUCT_FILE):
-    """
-    Fully safe loader for product_template.xlsx
-    Handles:
-    - Duplicate columns
-    - Inconsistent naming
-    - Missing required fields
-    """
 
-    required_cols = [
-        "Product No",
-        "Product",
-        "ProductList",
-        "Supplier",
-        "Price",
-        "Category",
-        "CategoryDisplay"
-    ]
-
-    # -------- Load Excel --------
+    # Load the Excel
     df = pd.read_excel(product_file)
 
-    # -------- FIX: Remove duplicate columns --------
+    # Remove duplicate columns completely
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # -------- Normalize base names for reliable matching --------
-    raw_cols = df.columns.tolist()
-    norm_cols = [c.lower().replace(" ", "").replace("_", "") for c in raw_cols]
-    df.columns = norm_cols
+    # -------- Normalize comparison versions --------
+    # Keep original names but create a helper map
+    normalized = {}
+    for col in df.columns:
+        key = col.lower().replace(" ", "").replace("_", "")
+        normalized[key] = col
 
-    # -------- Robust rename rules --------
-    rename_map = {
-        "productlist": "ProductList",
-        "productlistname": "ProductList",
-        "productlistid": "ProductList",
+    def get_col(name):
+        """Return the actual column name from normalized key"""
+        key = name.lower().replace(" ", "").replace("_", "")
+        return normalized[key] if key in normalized else None
 
-        "product": "Product",
-        "productname": "Product",
+    # -------- Resolve important columns --------
+    col_productlist = get_col("productlist") or get_col("productlistid") or get_col("productlistname")
+    col_product     = get_col("product") or get_col("productname")
+    col_supplier    = get_col("supplier")
+    col_price       = get_col("price")
 
-        "supplier": "Supplier",
-        "price": "Price",
+    # -------- Create final dataframe with required columns --------
+    final = pd.DataFrame()
+    final["ProductList"] = df[col_productlist] if col_productlist else ""
+    final["Product"]     = df[col_product]     if col_product     else ""
+    final["Supplier"]    = df[col_supplier]    if col_supplier    else ""
+    final["Price"]       = pd.to_numeric(df[col_price], errors="coerce").fillna(0) if col_price else 0
 
-        "productno": "Product No",
-        "category": "Category",
-        "categorydisplay": "CategoryDisplay"
-    }
-
-    df = df.rename(columns=rename_map)
-
-    # -------- Ensure required columns exist --------
-    for col in required_cols:
-        if col not in df.columns:
-            df[col] = ""
-
-    # -------- Convert price safely --------
-    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
-
-    # -------- Extract category from ProductList --------
-    def extract_category(x):
-        s = str(x)
+    # -------- Category extraction --------
+    def extract_cat(v):
+        s = str(v)
         if "_" in s:
             return s.split("_")[0]
         return "General"
 
-    df["Category"] = df["ProductList"].apply(extract_category)
+    final["Category"] = final["ProductList"].apply(extract_cat)
+    final["CategoryDisplay"] = final["Category"]
 
-    # -------- CategoryDisplay = same as Category --------
-    df["CategoryDisplay"] = df["Category"]
+    # -------- Safe Product No --------
+    final["Product No"] = ""
 
-    return df
+    return final
 
 df = load_products()
 
@@ -447,6 +424,7 @@ elif page == "Orders Report":
 # -------------------------
 st.sidebar.markdown("---")
 st.sidebar.write("App created: JPG image support added. PDF support:" + (" Yes" if FPDF_AVAILABLE else " No"))
+
 
 
 
