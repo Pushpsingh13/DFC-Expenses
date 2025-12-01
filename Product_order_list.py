@@ -97,53 +97,42 @@ def generate_placeholder(product_name: str) -> str:
 @st.cache_data
 def load_products(product_file=PRODUCT_FILE):
 
-    # Load the Excel
     df = pd.read_excel(product_file)
 
-    # Remove duplicate columns completely
+    # Remove duplicate columns
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # -------- Normalize comparison versions --------
-    # Keep original names but create a helper map
-    normalized = {}
-    for col in df.columns:
-        key = col.lower().replace(" ", "").replace("_", "")
-        normalized[key] = col
+    # Ensure required columns exist
+    required_cols = [
+        "Product No",
+        "Product",
+        "ProductList",
+        "Supplier",
+        "Price",
+        "Category",
+        "CategoryDisplay"
+    ]
 
-    def get_col(name):
-        """Return the actual column name from normalized key"""
-        key = name.lower().replace(" ", "").replace("_", "")
-        return normalized[key] if key in normalized else None
+    for col in required_cols:
+        if col not in df.columns:
+            df[col] = ""
 
-    # -------- Resolve important columns --------
-    col_productlist = get_col("productlist") or get_col("productlistid") or get_col("productlistname")
-    col_product     = get_col("product") or get_col("productname")
-    col_supplier    = get_col("supplier")
-    col_price       = get_col("price")
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
 
-    # -------- Create final dataframe with required columns --------
-    final = pd.DataFrame()
-    final["ProductList"] = df[col_productlist] if col_productlist else ""
-    final["Product"]     = df[col_product]     if col_product     else ""
-    final["Supplier"]    = df[col_supplier]    if col_supplier    else ""
-    final["Price"]       = pd.to_numeric(df[col_price], errors="coerce").fillna(0) if col_price else 0
-
-    # -------- Category extraction --------
-    def extract_cat(v):
-        s = str(v)
+    # Extract category
+    def extract_cat(x):
+        s = str(x)
         if "_" in s:
             return s.split("_")[0]
         return "General"
 
-    final["Category"] = final["ProductList"].apply(extract_cat)
-    final["CategoryDisplay"] = final["Category"]
+    df["Category"] = df["ProductList"].apply(extract_cat)
+    df["CategoryDisplay"] = df["Category"]
 
-    # -------- Safe Product No --------
-    final["Product No"] = ""
+    # 🟩 ADD THIS — generate JPG image placeholders
+    df["Image"] = df["Product"].astype(str).apply(generate_placeholder)
 
-    return final
-
-df = load_products()
+    return df
 
 
 # -------------------------
@@ -424,6 +413,7 @@ elif page == "Orders Report":
 # -------------------------
 st.sidebar.markdown("---")
 st.sidebar.write("App created: JPG image support added. PDF support:" + (" Yes" if FPDF_AVAILABLE else " No"))
+
 
 
 
