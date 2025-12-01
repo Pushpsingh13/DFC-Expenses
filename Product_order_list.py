@@ -120,20 +120,25 @@ def load_products():
     # -------- FIX: Remove duplicate columns --------
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # -------- Normalize column names --------
-    df.columns = df.columns.str.strip().str.lower()
+    # Normalize column names for comparison
+original_cols = df.columns.tolist()
+normalized_cols = [c.lower().replace(" ", "").replace("_", "") for c in original_cols]
+df.columns = normalized_cols
 
     rename_map = {
-        "productlist": "ProductList",
-        "product_list": "ProductList",
-        "product": "Product",
-        "product name": "Product",
-        "supplier": "Supplier",
-        "price": "Price",
-        "product no": "Product No",
-    }
-    df = df.rename(columns=rename_map)
+    "productlist": "ProductList",
+    "product": "Product",
+    "productname": "Product",
+    "productlistname": "ProductList",
+    "productlistid": "ProductList",
+    "supplier": "Supplier",
+    "price": "Price",
+    "productno": "Product No",
+    "category": "Category",
+    "categorydisplay": "CategoryDisplay"
+}
 
+df = df.rename(columns=rename_map)
     # -------- Ensure required columns exist --------
     for col in required_cols:
         if col not in df.columns:
@@ -443,5 +448,6 @@ elif page == "Orders Report":
 # -------------------------
 st.sidebar.markdown("---")
 st.sidebar.write("App created: JPG image support added. PDF support:" + (" Yes" if FPDF_AVAILABLE else " No"))
+
 
 
