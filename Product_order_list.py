@@ -11,7 +11,6 @@ try:
 except:
     PDF_OK = False
 
-
 # -------------------------
 # Streamlit Config
 # -------------------------
@@ -20,12 +19,19 @@ st.set_page_config(page_title="Product Order System", layout="wide", page_icon="
 PRODUCT_FILE = "product_template.xlsx"
 ORDER_FILE = "orders.xlsx"
 
-
 # -------------------------
 # Load Products
 # -------------------------
 @st.cache_data
 def load_products():
+    """
+    Load products from PRODUCT_FILE.
+    Create default template if missing.
+    Ensures 'Price' column is numeric and all required columns exist.
+    """
+    required_cols = ["ProductList", "Product", "Supplier", "Price"]
+
+    # Create default Excel if missing
     if not os.path.exists(PRODUCT_FILE):
         example = pd.DataFrame({
             "ProductList": [
@@ -41,17 +47,31 @@ def load_products():
         })
         example.to_excel(PRODUCT_FILE, index=False)
 
+    # Load Excel
     df = pd.read_excel(PRODUCT_FILE)
 
-    # Detect product columns
-    df = df.rename(columns={
-        df.columns[0]: "ProductList",
-        df.columns[1]: "Product",
-        df.columns[2]: "Supplier",
-        df.columns[3]: "Price"
-    })
+    # Normalize column names
+    df.columns = df.columns.str.strip().str.lower()
 
-    # Category extraction (internal tokens)
+    rename_map = {
+        "productlist": "ProductList",
+        "product_list": "ProductList",
+        "product": "Product",
+        "supplier": "Supplier",
+        "price": "Price"
+    }
+    df = df.rename(columns=rename_map)
+
+    # Check for missing required columns
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.error(f"Missing required columns in Excel: {missing}")
+        return pd.DataFrame(columns=required_cols)
+
+    # Ensure Price is numeric
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
+
+    # Category extraction
     def extract_category(x):
         s = str(x)
         if "Bread_Product" in s:
@@ -64,30 +84,22 @@ def load_products():
 
     df["Category"] = df["ProductList"].apply(extract_category)
 
-    # Friendly names for UI
-    def display_category(cat):
-        mapping = {
-            "Bread_Product": "Bread Products",
-            "Packing_Product": "Packing Products"
-        }
-        return mapping.get(cat, cat)
-
-    df["CategoryDisplay"] = df["Category"].apply(display_category)
-
-    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
+    # Friendly display
+    mapping = {
+        "Bread_Product": "Bread Products",
+        "Packing_Product": "Packing Products"
+    }
+    df["CategoryDisplay"] = df["Category"].map(mapping).fillna(df["Category"])
 
     return df
 
-
 df = load_products()
-
 
 # -------------------------
 # CART LOGIC
 # -------------------------
 if "cart" not in st.session_state:
     st.session_state.cart = []
-
 
 def add_to_cart(product, supplier, price, qty, weight):
     st.session_state.cart.append({
@@ -100,10 +112,8 @@ def add_to_cart(product, supplier, price, qty, weight):
         "LineTotal": float(price) * int(qty)
     })
 
-
 def clear_cart():
     st.session_state.cart = []
-
 
 def compute_totals(discount_pct=0):
     dfc = pd.DataFrame(st.session_state.cart)
@@ -114,10 +124,9 @@ def compute_totals(discount_pct=0):
     total = subtotal - disc
     return subtotal, disc, total
 
-
 def save_order(cart, discount_pct):
     order_id = str(uuid.uuid4()).split("-")[0].upper()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")   # LOCAL TIME
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     rows = []
     for c in cart:
@@ -142,7 +151,6 @@ def save_order(cart, discount_pct):
 
     df_out.to_excel(ORDER_FILE, index=False)
     return order_id, df_new
-
 
 def create_pdf(order_id, df_order, subtotal, discount_val, total):
     if not PDF_OK:
@@ -185,12 +193,10 @@ def create_pdf(order_id, df_order, subtotal, discount_val, total):
     pdf.output(out)
     return out
 
-
 # -------------------------
 # PAGE NAVIGATION
 # -------------------------
 page = st.sidebar.radio("Menu", ["Order", "Add Product", "Orders Report"])
-
 
 # -------------------------
 # PAGE: ORDER
@@ -256,9 +262,7 @@ if page == "Order":
 
         if st.sidebar.button("Save Order"):
             order_id, df_saved = save_order(st.session_state.cart, discount_pct)
-
             pdf_path = create_pdf(order_id, df_saved, subtotal, disc, total)
-
             clear_cart()
             st.success(f"Order {order_id} saved!")
 
@@ -275,10 +279,8 @@ if page == "Order":
                     data=df_saved.to_csv(index=False),
                     file_name=f"order_{order_id}.csv"
                 )
-
     else:
         st.sidebar.info("Cart is empty.")
-
 
 # -------------------------
 # PAGE: ADD PRODUCT
@@ -305,7 +307,6 @@ elif page == "Add Product":
             df_out = pd.concat([df_old, pd.DataFrame([new_row])], ignore_index=True)
             df_out.to_excel(PRODUCT_FILE, index=False)
             st.success("Product added successfully!")
-
 
 # -------------------------
 # PAGE: REPORT
@@ -334,7 +335,6 @@ elif page == "Orders Report":
         )
     else:
         st.info("No orders found.")
-
 
 # Footer
 st.sidebar.markdown("---")
