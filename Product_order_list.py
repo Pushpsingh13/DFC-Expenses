@@ -15,7 +15,6 @@ st.set_page_config(page_title="Product Order System", layout="wide", page_icon="
 
 PRODUCT_FILE = "product_template.xlsx"
 ORDER_FILE = "orders.xlsx"
-IMAGE_FOLDER = "product_images"
 
 
 # -------------------------
@@ -26,10 +25,9 @@ def load_products():
 
     df = pd.read_excel(PRODUCT_FILE)
 
-    # Trim column names
+    # Clean column names
     df.columns = df.columns.str.strip()
 
-    # Required columns
     required_cols = [
         "Product",
         "ProductList",
@@ -38,7 +36,7 @@ def load_products():
         "Category",
         "CategoryDisplay",
         "Product No",
-        "Image"
+        "Image"  # REQUIRED for images
     ]
 
     # Add missing columns
@@ -49,7 +47,7 @@ def load_products():
     # Price numeric
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
 
-    # Extract category if empty
+    # Extract category if blank
     def extract_category(x):
         s = str(x)
         if "_" in s:
@@ -59,7 +57,7 @@ def load_products():
     df["Category"] = df["Category"].replace("", pd.NA)
     df["Category"] = df["Category"].fillna(df["ProductList"].apply(extract_category))
 
-    # CategoryDisplay fallback
+    # Category Display fallback
     df["CategoryDisplay"] = df["CategoryDisplay"].replace("", pd.NA)
     df["CategoryDisplay"] = df["CategoryDisplay"].fillna(df["Category"])
 
@@ -153,7 +151,7 @@ def create_pdf(order_id, df_order, subtotal, discount_val, total):
 
     pdf.set_font("Arial", size=11)
     for _, r in df_order.iterrows():
-        pdf.cell(70, 8, r["Product"][:28], border=1)
+        pdf.cell(70, 8, r["Product"][:25], border=1)
         pdf.cell(20, 8, str(r["Qty"]), border=1)
         pdf.cell(25, 8, str(r["Weight"]), border=1)
         pdf.cell(30, 8, f"₹{r['Price']:.2f}", border=1)
@@ -220,27 +218,30 @@ if page == "Order":
 
             with col:
 
-                # --- FIXED IMAGE HANDLING (load from same folder as script) ---
-image_file = str(prod["Image"]).strip()
+                # -------------------------
+                # IMAGE HANDLING (Same folder)
+                # -------------------------
+                image_file = str(prod["Image"]).strip()
 
-# Use image file exactly as given (same directory)
-image_path = image_file
+                if image_file and os.path.exists(image_file):
+                    st.image(image_file, use_container_width=True)
+                elif image_file:
+                    st.warning(f"Image not found: {image_file}")
+                else:
+                    st.info("No image")
 
-if image_file and os.path.exists(image_path):
-    st.image(image_path, use_container_width=True)
-elif image_file:
-    st.warning(f"Image not found: {image_file}")
-else:
-    st.info("No image available")
-
-                # ---- PRODUCT INFO ----
+                # -------------------------
+                # PRODUCT INFO
+                # -------------------------
                 st.markdown(f"### {prod['Product']}")
                 st.write(f"Supplier: {prod['Supplier']}")
                 st.write(f"Price: ₹{prod['Price']:.2f}")
 
                 qty = st.number_input(f"Qty-{idx}", min_value=1, value=1)
 
-                # ---- NEW WEIGHT LOGIC ----
+                # -------------------------
+                # WEIGHT LOGIC
+                # -------------------------
                 category_value = str(prod["Category"]).strip().lower()
                 no_weight_categories = ["bread_product", "packing_product"]
 
@@ -254,7 +255,9 @@ else:
                     add_to_cart(prod["Product"], prod["Supplier"], prod["Price"], qty, weight)
                     st.success(f"Added {prod['Product']}")
 
-    # ---- CART SIDEBAR ----
+    # -------------------------
+    # CART SIDEBAR
+    # -------------------------
     st.sidebar.header("🧾 Cart")
 
     if st.session_state.cart:
@@ -262,7 +265,10 @@ else:
         df_cart = pd.DataFrame(st.session_state.cart)
         st.sidebar.table(df_cart[["Product", "Qty", "Weight", "Price", "LineTotal"]])
 
-        discount_pct = st.sidebar.number_input("Discount %", min_value=0.0, max_value=100.0, value=0.0)
+        discount_pct = st.sidebar.number_input(
+            "Discount %", min_value=0.0, max_value=100.0, value=0.0
+        )
+
         subtotal, disc, total = compute_totals(discount_pct)
 
         st.sidebar.write(f"Subtotal: ₹{subtotal:.2f}")
@@ -305,7 +311,7 @@ elif page == "Add Product":
     p_name = st.text_input("Product Name")
     p_supplier = st.text_input("Supplier")
     p_price = st.number_input("Price", min_value=0.0)
-    p_image = st.text_input("Image File Name (optional, e.g., cheese.jpg)")
+    p_image = st.text_input("Image File Name (optional, e.g., Cheese.jpg)")
 
     if st.button("Add Product"):
         if not p_list:
@@ -359,4 +365,3 @@ elif page == "Orders Report":
 # FOOTER
 st.sidebar.markdown("---")
 st.sidebar.write(f"PDF Enabled: {'Yes' if PDF_OK else 'No'}")
-
