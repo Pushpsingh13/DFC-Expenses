@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from PIL import Image, ImageDraw, ImageFont
 import os
 from datetime import datetime
 import uuid
@@ -7,309 +8,420 @@ import uuid
 # Optional PDF library
 try:
     from fpdf import FPDF
-    PDF_OK = True
-except:
-    PDF_OK = False
+    FPDF_AVAILABLE = True
+except Exception:
+    FPDF_AVAILABLE = False
+
 
 # -------------------------
-# Streamlit Config
+# Config / Files / Folders
 # -------------------------
 st.set_page_config(page_title="Product Order System", layout="wide", page_icon="🛒")
 
 PRODUCT_FILE = "product_template.xlsx"
 ORDER_FILE = "orders.xlsx"
+IMAGE_FOLDER = "generated_images"
+
+os.makedirs(IMAGE_FOLDER, exist_ok=True)
+
 
 # -------------------------
-# Load Products
+# Utility: safe text size
+# -------------------------
+def get_text_size(draw: ImageDraw.ImageDraw, text: str, font) -> tuple[float, float]:
+    if hasattr(draw, "textbbox"):
+        bbox = draw.textbbox((0, 0), text, font=font)
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+        return w, h
+
+    if hasattr(draw, "textlength"):
+        w = draw.textlength(text, font=font)
+        h = font.getmetrics()[0] if hasattr(font, "getmetrics") else 12
+        return w, h
+
+    return (len(text) * 7, 12)
+
+
+# -------------------------
+# Generate placeholder image (JPG update)
+# -------------------------
+def generate_placeholder(product_name: str) -> str:
+    safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in product_name).strip()
+
+    # Force JPG output
+    img_path = os.path.join(IMAGE_FOLDER, f"{safe_name}.jpg")
+
+    # Already exists? Just return.
+    if os.path.exists(img_path):
+        return img_path
+
+    width, height = 360, 240
+    bg_color = (245, 245, 245)
+    img = Image.new("RGB", (width, height), color=bg_color)
+    draw = ImageDraw.Draw(img)
+
+    try:
+        font = ImageFont.truetype("arial.ttf", 18)
+    except Exception:
+        font = ImageFont.load_default()
+
+    name = str(product_name)
+    w, h = get_text_size(draw, name, font)
+
+    # If text too long, split into 2 lines
+    if w > (width - 20):
+        parts = name.split()
+        mid = len(parts) // 2
+        line1 = " ".join(parts[:mid])
+        line2 = " ".join(parts[mid:])
+        w1, h1 = get_text_size(draw, line1, font)
+        w2, h2 = get_text_size(draw, line2, font)
+
+        draw.text(((width - w1) / 2, (height / 2) - h1 - 4), line1, font=font, fill="black")
+        draw.text(((width - w2) / 2, (height / 2) + 4), line2, font=font, fill="black")
+    else:
+        draw.text(((width - w) / 2, (height - h) / 2), name, font=font, fill="black")
+
+    draw.rectangle([1, 1, width - 2, height - 2], outline=(220, 220, 220))
+
+    # Save as high-quality JPG
+    img.save(img_path, format="JPEG", quality=92)
+
+    return img_path
+
+
+# -------------------------
+# Load products with auto-detect
 # -------------------------
 @st.cache_data
-def load_products():
-    """
-    Load products from PRODUCT_FILE.
-    Create default template if missing.
-    Ensures 'Price' column is numeric and all required columns exist.
-    """
-    required_cols = ["Product No","Product","ProductList","Supplier","Price","Category","CategoryDisplay"]
-
-    # Create default Excel if missing
-    if not os.path.exists(PRODUCT_FILE):
+def load_products(product_file=PRODUCT_FILE):
+    if not os.path.exists(product_file):
         example = pd.DataFrame({
-            "ProductList": [
-                "Milk_Product_1_Cheese Mozarella",
+            "Product List": [
+                "Milk_Product_1_Cheese Mozorella",
                 "Milk_Product_2_Butter",
-                "Bread_Product_Pizza Base",
-                "Packing_Product_Carry Bag",
-                "Sauce_Product_1_Ketchup"
+                "Bread_Product_1_Pizza Base 10 inch",
+                "Sauces_Product_6_Tomato ketchup"
             ],
-            "Product": ["Cheese Mozarella", "Butter", "Pizza Base", "Carry Bag", "Tomato Ketchup"],
-            "Supplier": ["Blink IT", "Blink IT", "Baker's Hub", "Packing Co.", "Sauce Co."],
-            "Price": [535.0, 290.0, 120.0, 10.0, 60.0]
+            "Product Name": ["Cheese Mozorella", "Butter", "Pizza Base 10 inch", "Tomato ketchup"],
+            "Supplier": ["Blink IT", "Blink IT", "Baker's Hub", "Sauce Co."],
+            "Price": [535.0, 290.0, 120.0, 60.0]
         })
-        example.to_excel(PRODUCT_FILE, index=False)
+        example.to_excel(product_file, index=False)
 
-    # Load Excel
-    df = pd.read_excel(PRODUCT_FILE)
+    df = pd.read_excel(product_file)
 
-    # Normalize column names
-    df.columns = df.columns.str.strip().str.lower()
+    # Detect product column
+    product_col = None
+    for col in df.columns:
+        vals = df[col].astype(str).str.lower()
+        if vals.str.contains("product_").any() or "product" in col.lower():
+            product_col = col
+            break
+    if product_col is None:
+        product_col = df.columns[0]
 
-    rename_map = {
-        "productlist": "ProductList",
-        "product_list": "ProductList",
-        "product": "Product",
-        "supplier": "Supplier",
-        "price": "Price"
-    }
-    df = df.rename(columns=rename_map)
+    name_col = None
+    for col in df.columns:
+        if "name" in col.lower():
+            name_col = col
+            break
+    if name_col is None:
+        name_col = product_col
 
-    # Check for missing required columns
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
-        st.error(f"Missing required columns in Excel: {missing}")
-        return pd.DataFrame(columns=required_cols)
+    supplier_col = None
+    price_col = None
+    for col in df.columns:
+        low = col.lower()
+        if "supplier" in low:
+            supplier_col = col
+        if "price" in low or "rate" in low or "cost" in low:
+            price_col = col
 
-    # Ensure Price is numeric
-    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
+    if supplier_col is None:
+        possible = [c for c in df.columns if c not in (product_col, name_col)]
+        supplier_col = possible[0] if possible else None
 
-    # Category extraction
+    if price_col is None:
+        numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+        price_col = numeric_cols[0] if numeric_cols else None
+
+    df = df.rename(columns={
+        product_col: "ProductList",
+        name_col: "Product",
+        supplier_col: "Supplier" if supplier_col else None,
+        price_col: "Price" if price_col else None
+    })
+
+    if "Supplier" not in df.columns:
+        df["Supplier"] = ""
+
+    if "Price" not in df.columns:
+        df["Price"] = 0.0
+
     def extract_category(x):
         s = str(x)
-        if "Bread_Product" in s:
-            return "Bread_Product"
-        if "Packing_Product" in s:
-            return "Packing_Product"
         if "_" in s:
             return s.split("_")[0]
         return "General"
 
     df["Category"] = df["ProductList"].apply(extract_category)
 
-    # Friendly display
-    mapping = {
-        "Bread_Product": "Bread Products",
-        "Packing_Product": "Packing Products"
-    }
-    df["CategoryDisplay"] = df["Category"].map(mapping).fillna(df["Category"])
+    # Generate JPG image path
+    df["Image"] = df["Product"].astype(str).apply(generate_placeholder)
+
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0.0)
 
     return df
 
+
 df = load_products()
 
+
 # -------------------------
-# CART LOGIC
+# Cart & helpers
 # -------------------------
 if "cart" not in st.session_state:
     st.session_state.cart = []
 
-def add_to_cart(product, supplier, price, qty, weight):
+def add_to_cart(product, supplier, price, qty):
     st.session_state.cart.append({
         "OrderID": None,
         "Product": product,
         "Supplier": supplier,
         "Price": float(price),
         "Qty": int(qty),
-        "Weight": weight,
         "LineTotal": float(price) * int(qty)
     })
 
 def clear_cart():
     st.session_state.cart = []
 
-def compute_totals(discount_pct=0):
-    dfc = pd.DataFrame(st.session_state.cart)
-    if dfc.empty:
-        return 0, 0, 0
-    subtotal = dfc["LineTotal"].sum()
-    disc = subtotal * (discount_pct / 100)
-    total = subtotal - disc
-    return subtotal, disc, total
+def compute_cart_totals(discount_pct=0.0):
+    dfc = pd.DataFrame(st.session_state.cart) if st.session_state.cart else pd.DataFrame(columns=["LineTotal"])
+    subtotal = dfc["LineTotal"].sum() if not dfc.empty else 0.0
+    discount_val = subtotal * (discount_pct / 100.0)
+    total = subtotal - discount_val
+    return subtotal, discount_val, total
 
-def save_order(cart, discount_pct):
+def save_order(cart, discount_pct=0.0):
     order_id = str(uuid.uuid4()).split("-")[0].upper()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     rows = []
-    for c in cart:
-        rows.append({
+    for line in cart:
+        row = {
             "OrderID": order_id,
             "Timestamp": now,
-            "Product": c["Product"],
-            "Supplier": c["Supplier"],
-            "Price": c["Price"],
-            "Qty": c["Qty"],
-            "Weight": c["Weight"],
-            "LineTotal": c["LineTotal"],
+            "Product": line["Product"],
+            "Supplier": line.get("Supplier", ""),
+            "Price": line["Price"],
+            "Qty": line["Qty"],
+            "LineTotal": line["LineTotal"],
             "DiscountPct": discount_pct
-        })
+        }
+        rows.append(row)
 
     df_new = pd.DataFrame(rows)
+
     if os.path.exists(ORDER_FILE):
-        df_old = pd.read_excel(ORDER_FILE)
-        df_out = pd.concat([df_old, df_new], ignore_index=True)
+        df_existing = pd.read_excel(ORDER_FILE)
+        df_out = pd.concat([df_existing, df_new], ignore_index=True)
     else:
         df_out = df_new
 
     df_out.to_excel(ORDER_FILE, index=False)
+
     return order_id, df_new
 
-def create_pdf(order_id, df_order, subtotal, discount_val, total):
-    if not PDF_OK:
+
+def create_pdf_receipt(order_id, df_order, subtotal, discount_val, total):
+    if not FPDF_AVAILABLE:
         return None
 
-    pdf = FPDF()
+    pdf = FPDF(format="A4")
     pdf.add_page()
     pdf.set_font("Arial", size=12)
 
-    pdf.cell(200, 10, f"Receipt - Order {order_id}", ln=True, align="C")
-    pdf.cell(200, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
+    pdf.cell(200, 10, txt=f"Receipt - Order {order_id}", ln=True, align="C")
+    pdf.cell(200, 6, txt=f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
     pdf.ln(4)
 
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(70, 8, "Product", border=1)
-    pdf.cell(20, 8, "Qty", border=1)
-    pdf.cell(25, 8, "Weight", border=1)
+    pdf.cell(80, 8, "Product", border=1)
     pdf.cell(30, 8, "Price", border=1)
-    pdf.cell(30, 8, "Total", border=1, ln=True)
+    pdf.cell(20, 8, "Qty", border=1)
+    pdf.cell(30, 8, "LineTotal", border=1, ln=True)
 
     pdf.set_font("Arial", size=11)
     for _, r in df_order.iterrows():
-        pdf.cell(70, 8, r["Product"][:28], border=1)
-        pdf.cell(20, 8, str(r["Qty"]), border=1)
-        pdf.cell(25, 8, str(r["Weight"]), border=1)
+        pdf.cell(80, 8, str(r["Product"])[:35], border=1)
         pdf.cell(30, 8, f"₹{r['Price']:.2f}", border=1)
+        pdf.cell(20, 8, str(int(r["Qty"])), border=1)
         pdf.cell(30, 8, f"₹{r['LineTotal']:.2f}", border=1, ln=True)
 
     pdf.ln(4)
-    pdf.cell(120, 8, "Subtotal:", align="R")
+    pdf.cell(130, 8, f"Subtotal:", align="R")
     pdf.cell(30, 8, f"₹{subtotal:.2f}", ln=True)
 
-    pdf.cell(120, 8, "Discount:", align="R")
-    pdf.cell(30, 8, f"₹{discount_val:.2f}", ln=True)
+    pdf.cell(130, 8, f"Discount:", align="R")
+    pdf.cell(30, 8, f"-₹{discount_val:.2f}", ln=True)
 
-    pdf.cell(120, 10, "Total:", align="R")
+    pdf.cell(130, 10, f"Total:", align="R")
     pdf.cell(30, 10, f"₹{total:.2f}", ln=True)
 
-    out = f"receipt_{order_id}.pdf"
-    pdf.output(out)
-    return out
+    outpath = f"receipt_{order_id}.pdf"
+    pdf.output(outpath)
+
+    return outpath
+
 
 # -------------------------
-# PAGE NAVIGATION
+# App Navigation
 # -------------------------
-page = st.sidebar.radio("Menu", ["Order", "Add Product", "Orders Report"])
+PAGES = {
+    "Order": "order",
+    "Add Product": "add_product",
+    "Orders Report": "report"
+}
+page = st.sidebar.radio("Menu", list(PAGES.keys()))
+
 
 # -------------------------
-# PAGE: ORDER
+# PAGE: Order
 # -------------------------
 if page == "Order":
     st.title("🛒 Product Order System")
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        q = st.text_input("Search product")
-    with col2:
-        cat = st.selectbox("Category", ["All"] + sorted(df["CategoryDisplay"].unique()))
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        q = st.text_input("Search product", value="")
+    with c2:
+        cat = st.selectbox("Category", ["All"] + sorted(df["Category"].unique().tolist()))
 
-    mask = (
-        df["Product"].str.contains(q, case=False)
-        | df["ProductList"].str.contains(q, case=False)
-    )
+    mask = df["Product"].str.contains(q, case=False, na=False) | df["ProductList"].str.contains(q, case=False, na=False)
     if cat != "All":
-        mask &= df["CategoryDisplay"] == cat
+        mask &= df["Category"] == cat
 
-    filtered = df[mask]
+    filtered = df[mask].reset_index(drop=True)
 
-    st.subheader("Available Products")
+    st.subheader("Available products")
     cols_per_row = 3
 
     for i in range(0, len(filtered), cols_per_row):
-        row = st.columns(cols_per_row)
-        for j, col in enumerate(row):
+        cols = st.columns(cols_per_row)
+        for j, col in enumerate(cols):
             idx = i + j
             if idx >= len(filtered):
                 break
 
             prod = filtered.iloc[idx]
             with col:
-                st.markdown(f"### {prod['Product']}")
+                st.image(prod["Image"], use_container_width=True)
+                st.markdown(f"**{prod['Product']}**")
                 st.write(f"Supplier: {prod['Supplier']}")
                 st.write(f"Price: ₹{prod['Price']:.2f}")
 
-                qty = st.number_input(f"Qty-{idx}", min_value=1, value=1)
-
-                # Weight only if NOT Bread_Product or Packing_Product
-                weight = ""
-                if prod["Category"] not in ["Bread_Product", "Packing_Product"]:
-                    weight = st.text_input(f"Weight-{idx}", placeholder="500g / 1kg")
+                qty_key = f"qty_{idx}"
+                qty = st.number_input("Qty", min_value=1, value=1, key=qty_key)
 
                 if st.button("Add to Cart", key=f"add_{idx}"):
-                    add_to_cart(prod["Product"], prod["Supplier"], prod["Price"], qty, weight)
-                    st.success(f"Added {prod['Product']}")
+                    add_to_cart(prod["Product"], prod["Supplier"], prod["Price"], qty)
+                    st.success(f"Added {prod['Product']} (x{qty})")
 
-    # Cart UI
-    st.sidebar.header("🧾 Cart")
+    # CART SIDEBAR
+    st.sidebar.header("🧾 Current Cart")
 
     if st.session_state.cart:
         df_cart = pd.DataFrame(st.session_state.cart)
-        st.sidebar.table(df_cart[["Product", "Qty", "Weight", "Price", "LineTotal"]])
+        st.sidebar.table(df_cart[["Product", "Price", "Qty", "LineTotal"]])
 
-        discount_pct = st.sidebar.number_input("Discount %", min_value=0.0, max_value=100.0, value=0.0)
-        subtotal, disc, total = compute_totals(discount_pct)
+        discount_pct = st.sidebar.number_input("Discount %", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
+
+        subtotal, discount_val, total = compute_cart_totals(discount_pct=discount_pct)
 
         st.sidebar.write(f"Subtotal: ₹{subtotal:.2f}")
-        st.sidebar.write(f"Discount: ₹{disc:.2f}")
+        st.sidebar.write(f"Discount: -₹{discount_val:.2f}")
         st.sidebar.write(f"Total: ₹{total:.2f}")
 
         if st.sidebar.button("Save Order"):
             order_id, df_saved = save_order(st.session_state.cart, discount_pct)
-            pdf_path = create_pdf(order_id, df_saved, subtotal, disc, total)
-            clear_cart()
-            st.success(f"Order {order_id} saved!")
 
-            if pdf_path:
-                st.download_button(
+            receipt_path = create_pdf_receipt(order_id, df_saved, subtotal, discount_val, total) if FPDF_AVAILABLE else None
+
+            clear_cart()
+
+            st.sidebar.success(f"Order {order_id} saved.")
+
+            if receipt_path:
+                st.sidebar.download_button(
                     "Download Receipt (PDF)",
-                    data=open(pdf_path, "rb").read(),
-                    file_name=pdf_path,
+                    data=open(receipt_path, "rb").read(),
+                    file_name=receipt_path,
                     mime="application/pdf"
                 )
             else:
-                st.download_button(
-                    "Download Order CSV",
+                st.sidebar.download_button(
+                    "Download Order (CSV)",
                     data=df_saved.to_csv(index=False),
-                    file_name=f"order_{order_id}.csv"
+                    file_name=f"order_{order_id}.csv",
+                    mime="text/csv"
                 )
+
     else:
-        st.sidebar.info("Cart is empty.")
+        st.sidebar.info("Cart is empty")
+
 
 # -------------------------
-# PAGE: ADD PRODUCT
+# PAGE: Add Product
 # -------------------------
 elif page == "Add Product":
     st.title("➕ Add New Product")
+    st.write("Add a new product to the product_template.xlsx file.")
 
-    p_list = st.text_input("ProductList (e.g., Milk_Product_1_Cheese)")
+    p_productlist = st.text_input("ProductList (e.g., Milk_Product_1_CheeseMozarella)")
     p_name = st.text_input("Product Name")
     p_supplier = st.text_input("Supplier")
-    p_price = st.number_input("Price", min_value=0.0)
+    p_price = st.number_input("Price", min_value=0.0, value=0.0, step=0.5)
 
-    if st.button("Add Product"):
-        if not p_list:
-            st.error("ProductList required")
+    if st.button("Add Product to Excel"):
+        if not p_productlist:
+            st.error("ProductList field required.")
         else:
-            df_old = pd.read_excel(PRODUCT_FILE)
+            df_existing = pd.read_excel(PRODUCT_FILE)
+
             new_row = {
-                "ProductList": p_list,
-                "Product": p_name or p_list,
+                "ProductList": p_productlist,
+                "Product": p_name or p_productlist,
                 "Supplier": p_supplier,
                 "Price": p_price
             }
-            df_out = pd.concat([df_old, pd.DataFrame([new_row])], ignore_index=True)
-            df_out.to_excel(PRODUCT_FILE, index=False)
-            st.success("Product added successfully!")
+
+            # Ensure correct column mapping
+            row_to_save = {}
+            for col in df_existing.columns:
+                if "product" in col.lower() and "list" in col.lower():
+                    row_to_save[col] = p_productlist
+                elif "name" in col.lower():
+                    row_to_save[col] = p_name or p_productlist
+                elif "supplier" in col.lower():
+                    row_to_save[col] = p_supplier
+                elif "price" in col.lower():
+                    row_to_save[col] = p_price
+                else:
+                    row_to_save[col] = ""
+
+            df_existing = df_existing.append(row_to_save, ignore_index=True)
+            df_existing.to_excel(PRODUCT_FILE, index=False)
+
+            generate_placeholder(p_name or p_productlist)
+
+            st.success("Product added. Refresh the app to see it.")
+
 
 # -------------------------
-# PAGE: REPORT
+# PAGE: Orders Report
 # -------------------------
 elif page == "Orders Report":
     st.title("📊 Orders Report")
@@ -319,24 +431,28 @@ elif page == "Orders Report":
         st.dataframe(df_orders)
 
         df_orders["Timestamp"] = pd.to_datetime(df_orders["Timestamp"])
-        daily = df_orders.groupby(df_orders["Timestamp"].dt.date).agg(
-            Revenue=("LineTotal", "sum"),
-            Orders=("OrderID", pd.Series.nunique)
-        )
+        daily = df_orders.groupby(df_orders["Timestamp"].dt.date).agg({
+            "LineTotal": "sum",
+            "OrderID": pd.Series.nunique
+        }).rename(columns={"LineTotal": "Revenue", "OrderID": "Orders"})
 
         st.subheader("Daily Summary")
-        st.table(daily)
+        st.table(daily.sort_index(ascending=False).head(30))
 
-        st.download_button(
-            "Download Orders Excel",
-            data=open(ORDER_FILE, "rb").read(),
-            file_name="orders.xlsx",
-            mime="application/vnd.ms-excel"
-        )
+        if st.button("Download Orders (Excel)"):
+            with open(ORDER_FILE, "rb") as f:
+                st.download_button(
+                    "Download full orders.xlsx",
+                    data=f,
+                    file_name="orders.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
     else:
-        st.info("No orders found.")
+        st.info("No orders yet.")
 
-# Footer
+
+# -------------------------
+# Sidebar footer
+# -------------------------
 st.sidebar.markdown("---")
-st.sidebar.write(f"PDF Enabled: {'Yes' if PDF_OK else 'No'}")
-
+st.sidebar.write("App created: JPG image support added. PDF support:" + (" Yes" if FPDF_AVAILABLE else " No"))
