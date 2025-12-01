@@ -220,16 +220,18 @@ if page == "Order":
 
             with col:
 
-                # ---- IMAGE DISPLAY ----
-                image_file = str(prod["Image"]).strip()
-                image_path = os.path.join(IMAGE_FOLDER, image_file)
+                # --- FIXED IMAGE HANDLING (load from same folder as script) ---
+image_file = str(prod["Image"]).strip()
 
-                if image_file and os.path.exists(image_path):
-                    st.image(image_path, use_container_width=True)
-                elif image_file:
-                    st.warning(f"Image not found: {image_file}")
-                else:
-                    st.info("No image")
+# Use image file exactly as given (same directory)
+image_path = image_file
+
+if image_file and os.path.exists(image_path):
+    st.image(image_path, use_container_width=True)
+elif image_file:
+    st.warning(f"Image not found: {image_file}")
+else:
+    st.info("No image available")
 
                 # ---- PRODUCT INFO ----
                 st.markdown(f"### {prod['Product']}")
@@ -357,3 +359,4 @@ elif page == "Orders Report":
 # FOOTER
 st.sidebar.markdown("---")
 st.sidebar.write(f"PDF Enabled: {'Yes' if PDF_OK else 'No'}")
+
