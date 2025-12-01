@@ -29,7 +29,7 @@ def load_products():
     Create default template if missing.
     Ensures 'Price' column is numeric and all required columns exist.
     """
-    required_cols = ["ProductList", "Product", "Supplier", "Price"]
+    required_cols = ["Product No","Product","ProductList","Supplier","Price","Category","CategoryDisplay"]
 
     # Create default Excel if missing
     if not os.path.exists(PRODUCT_FILE):
@@ -339,3 +339,4 @@ elif page == "Orders Report":
 # Footer
 st.sidebar.markdown("---")
 st.sidebar.write(f"PDF Enabled: {'Yes' if PDF_OK else 'No'}")
+
