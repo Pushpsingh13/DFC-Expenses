@@ -26,10 +26,10 @@ def load_products():
 
     df = pd.read_excel(PRODUCT_FILE)
 
-    # Normalize column names (lowercase for checking)
-    original_cols = list(df.columns)
+    # Trim column names
     df.columns = df.columns.str.strip()
 
+    # Required columns
     required_cols = [
         "Product",
         "ProductList",
@@ -38,18 +38,18 @@ def load_products():
         "Category",
         "CategoryDisplay",
         "Product No",
-        "Image",
+        "Image"
     ]
 
-    # Add missing columns if required
+    # Add missing columns
     for col in required_cols:
         if col not in df.columns:
             df[col] = ""
 
-    # Ensure price numeric
+    # Price numeric
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
 
-    # Extract category from ProductList if empty
+    # Extract category if empty
     def extract_category(x):
         s = str(x)
         if "_" in s:
@@ -59,7 +59,7 @@ def load_products():
     df["Category"] = df["Category"].replace("", pd.NA)
     df["Category"] = df["Category"].fillna(df["ProductList"].apply(extract_category))
 
-    # Category display fallback
+    # CategoryDisplay fallback
     df["CategoryDisplay"] = df["CategoryDisplay"].replace("", pd.NA)
     df["CategoryDisplay"] = df["CategoryDisplay"].fillna(df["Category"])
 
@@ -229,7 +229,7 @@ if page == "Order":
                 elif image_file:
                     st.warning(f"Image not found: {image_file}")
                 else:
-                    st.info("No image available")
+                    st.info("No image")
 
                 # ---- PRODUCT INFO ----
                 st.markdown(f"### {prod['Product']}")
@@ -238,16 +238,19 @@ if page == "Order":
 
                 qty = st.number_input(f"Qty-{idx}", min_value=1, value=1)
 
-                # Weight option (disabled for Bread and Packing categories)
-category_value = str(prod["Category"]).strip().lower()
+                # ---- NEW WEIGHT LOGIC ----
+                category_value = str(prod["Category"]).strip().lower()
+                no_weight_categories = ["bread_product", "packing_product"]
 
-no_weight_categories = ["bread_product", "packing_product"]
+                if category_value in no_weight_categories:
+                    weight = ""
+                    st.write("Weight: Not required")
+                else:
+                    weight = st.text_input(f"Weight-{idx}", placeholder="500g / 1kg")
 
-if category_value in no_weight_categories:
-    weight = ""
-    st.write("Weight: Not required")
-else:
-    weight = st.text_input(f"Weight-{idx}", placeholder="500g / 1kg")
+                if st.button("Add to Cart", key=f"add_{idx}"):
+                    add_to_cart(prod["Product"], prod["Supplier"], prod["Price"], qty, weight)
+                    st.success(f"Added {prod['Product']}")
 
     # ---- CART SIDEBAR ----
     st.sidebar.header("🧾 Cart")
@@ -354,4 +357,3 @@ elif page == "Orders Report":
 # FOOTER
 st.sidebar.markdown("---")
 st.sidebar.write(f"PDF Enabled: {'Yes' if PDF_OK else 'No'}")
-
