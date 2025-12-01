@@ -292,7 +292,8 @@ if page == "Order":
     with c2:
         cat = st.selectbox("Category", ["All"] + sorted(df["Category"].unique().tolist()))
 
-    mask = df["Product"].str.contains(q, case=False, na=False) | df["ProductList"].str.contains(q, case=False, na=False)
+    mask = df["Product"].str.contains(q, case=False, na=False) | \
+       df["ProductList"].str.contains(q, case=False, na=False)
     if cat != "All":
         mask &= df["Category"] == cat
 
@@ -448,6 +449,7 @@ elif page == "Orders Report":
 # -------------------------
 st.sidebar.markdown("---")
 st.sidebar.write("App created: JPG image support added. PDF support:" + (" Yes" if FPDF_AVAILABLE else " No"))
+
 
 
 
