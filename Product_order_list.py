@@ -238,14 +238,16 @@ if page == "Order":
 
                 qty = st.number_input(f"Qty-{idx}", min_value=1, value=1)
 
-                # Weight not required for bread or packing products
-                weight = ""
-                if prod["Category"] not in ["Bread_Product", "Packing_Product"]:
-                    weight = st.text_input(f"Weight-{idx}", placeholder="500g / 1kg")
+                # Weight option (disabled for Bread and Packing categories)
+category_value = str(prod["Category"]).strip().lower()
 
-                if st.button("Add to Cart", key=f"add_{idx}"):
-                    add_to_cart(prod["Product"], prod["Supplier"], prod["Price"], qty, weight)
-                    st.success(f"Added {prod['Product']}")
+no_weight_categories = ["bread_product", "packing_product"]
+
+if category_value in no_weight_categories:
+    weight = ""
+    st.write("Weight: Not required")
+else:
+    weight = st.text_input(f"Weight-{idx}", placeholder="500g / 1kg")
 
     # ---- CART SIDEBAR ----
     st.sidebar.header("🧾 Cart")
@@ -352,3 +354,4 @@ elif page == "Orders Report":
 # FOOTER
 st.sidebar.markdown("---")
 st.sidebar.write(f"PDF Enabled: {'Yes' if PDF_OK else 'No'}")
+
