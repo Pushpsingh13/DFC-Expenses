@@ -95,61 +95,66 @@ def generate_placeholder(product_name: str) -> str:
 # Load products with auto-detect
 # -------------------------
 @st.cache_data
-def load_products():
+def load_products(product_file=PRODUCT_FILE):
     """
-    Load products safely and fix all Excel issues:
-    - Remove duplicate columns
-    - Normalize column names
-    - Ensure required columns exist
-    - Handle ProductList, Category, CategoryDisplay
+    Fully safe loader for product_template.xlsx
+    Handles:
+    - Duplicate columns
+    - Inconsistent naming
+    - Missing required fields
     """
-    
+
     required_cols = [
-        "Product No", 
-        "Product", 
+        "Product No",
+        "Product",
         "ProductList",
-        "Supplier", 
-        "Price", 
-        "Category", 
+        "Supplier",
+        "Price",
+        "Category",
         "CategoryDisplay"
     ]
 
-    # -------- LOAD FILE --------
-    df = pd.read_excel(PRODUCT_FILE)
+    # -------- Load Excel --------
+    df = pd.read_excel(product_file)
 
     # -------- FIX: Remove duplicate columns --------
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Normalize column names for comparison
-original_cols = df.columns.tolist()
-normalized_cols = [c.lower().replace(" ", "").replace("_", "") for c in original_cols]
-df.columns = normalized_cols
+    # -------- Normalize base names for reliable matching --------
+    raw_cols = df.columns.tolist()
+    norm_cols = [c.lower().replace(" ", "").replace("_", "") for c in raw_cols]
+    df.columns = norm_cols
 
+    # -------- Robust rename rules --------
     rename_map = {
-    "productlist": "ProductList",
-    "product": "Product",
-    "productname": "Product",
-    "productlistname": "ProductList",
-    "productlistid": "ProductList",
-    "supplier": "Supplier",
-    "price": "Price",
-    "productno": "Product No",
-    "category": "Category",
-    "categorydisplay": "CategoryDisplay"
-}
+        "productlist": "ProductList",
+        "productlistname": "ProductList",
+        "productlistid": "ProductList",
 
-df = df.rename(columns=rename_map)
+        "product": "Product",
+        "productname": "Product",
+
+        "supplier": "Supplier",
+        "price": "Price",
+
+        "productno": "Product No",
+        "category": "Category",
+        "categorydisplay": "CategoryDisplay"
+    }
+
+    df = df.rename(columns=rename_map)
+
     # -------- Ensure required columns exist --------
     for col in required_cols:
         if col not in df.columns:
             df[col] = ""
 
-    # -------- Convert Price to numeric --------
+    # -------- Convert price safely --------
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
 
-    # -------- Extract Category safely --------
-    def extract_category(val):
-        s = str(val)
+    # -------- Extract category from ProductList --------
+    def extract_category(x):
+        s = str(x)
         if "_" in s:
             return s.split("_")[0]
         return "General"
@@ -159,14 +164,7 @@ df = df.rename(columns=rename_map)
     # -------- CategoryDisplay = same as Category --------
     df["CategoryDisplay"] = df["Category"]
 
-    # -------- Return cleaned dataframe --------
-    return df    # Generate JPG image path
-    df["Image"] = df["Product"].astype(str).apply(generate_placeholder)
-
-    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0.0)
-
     return df
-
 
 df = load_products()
 
@@ -449,6 +447,7 @@ elif page == "Orders Report":
 # -------------------------
 st.sidebar.markdown("---")
 st.sidebar.write("App created: JPG image support added. PDF support:" + (" Yes" if FPDF_AVAILABLE else " No"))
+
 
 
 
