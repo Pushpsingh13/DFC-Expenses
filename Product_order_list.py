@@ -95,71 +95,36 @@ def generate_placeholder(product_name: str) -> str:
 # Load products with auto-detect
 # -------------------------
 @st.cache_data
-def load_products(product_file=PRODUCT_FILE):
-    if not os.path.exists(product_file):
-        example = pd.DataFrame({
-            "Product List": [
-                "Milk_Product_1_Cheese Mozorella",
-                "Milk_Product_2_Butter",
-                "Bread_Product_1_Pizza Base 10 inch",
-                "Sauces_Product_6_Tomato ketchup"
-            ],
-            "Product Name": ["Cheese Mozorella", "Butter", "Pizza Base 10 inch", "Tomato ketchup"],
-            "Supplier": ["Blink IT", "Blink IT", "Baker's Hub", "Sauce Co."],
-            "Price": [535.0, 290.0, 120.0, 60.0]
-        })
-        example.to_excel(product_file, index=False)
+def load_products():
+    required_cols = ["Product No","Product","ProductList","Supplier","Price","Category","CategoryDisplay"]
 
-    df = pd.read_excel(product_file)
+    # Load Excel
+    df = pd.read_excel(PRODUCT_FILE)
 
-    # Detect product column
-    product_col = None
-    for col in df.columns:
-        vals = df[col].astype(str).str.lower()
-        if vals.str.contains("product_").any() or "product" in col.lower():
-            product_col = col
-            break
-    if product_col is None:
-        product_col = df.columns[0]
+    # Remove duplicated column names
+    df = df.loc[:, ~df.columns.duplicated()]
 
-    name_col = None
-    for col in df.columns:
-        if "name" in col.lower():
-            name_col = col
-            break
-    if name_col is None:
-        name_col = product_col
+    # Normalize column names
+    df.columns = df.columns.str.strip().str.lower()
 
-    supplier_col = None
-    price_col = None
-    for col in df.columns:
-        low = col.lower()
-        if "supplier" in low:
-            supplier_col = col
-        if "price" in low or "rate" in low or "cost" in low:
-            price_col = col
+    rename_map = {
+        "productlist": "ProductList",
+        "product_list": "ProductList",
+        "product": "Product",
+        "supplier": "Supplier",
+        "price": "Price"
+    }
+    df = df.rename(columns=rename_map)
 
-    if supplier_col is None:
-        possible = [c for c in df.columns if c not in (product_col, name_col)]
-        supplier_col = possible[0] if possible else None
+    # Ensure Price numeric
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
 
-    if price_col is None:
-        numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
-        price_col = numeric_cols[0] if numeric_cols else None
+    # Ensure missing required columns exist
+    for col in required_cols:
+        if col not in df.columns:
+            df[col] = ""
 
-    df = df.rename(columns={
-        product_col: "ProductList",
-        name_col: "Product",
-        supplier_col: "Supplier" if supplier_col else None,
-        price_col: "Price" if price_col else None
-    })
-
-    if "Supplier" not in df.columns:
-        df["Supplier"] = ""
-
-    if "Price" not in df.columns:
-        df["Price"] = 0.0
-
+    # Category extraction
     def extract_category(x):
         s = str(x)
         if "_" in s:
@@ -167,6 +132,10 @@ def load_products(product_file=PRODUCT_FILE):
         return "General"
 
     df["Category"] = df["ProductList"].apply(extract_category)
+
+    df["CategoryDisplay"] = df["Category"]
+
+    return df
 
     # Generate JPG image path
     df["Image"] = df["Product"].astype(str).apply(generate_placeholder)
@@ -456,3 +425,4 @@ elif page == "Orders Report":
 # -------------------------
 st.sidebar.markdown("---")
 st.sidebar.write("App created: JPG image support added. PDF support:" + (" Yes" if FPDF_AVAILABLE else " No"))
+
