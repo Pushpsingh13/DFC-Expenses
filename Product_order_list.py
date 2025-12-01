@@ -96,48 +96,66 @@ def generate_placeholder(product_name: str) -> str:
 # -------------------------
 @st.cache_data
 def load_products():
-    required_cols = ["Product No","Product","ProductList","Supplier","Price","Category","CategoryDisplay"]
+    """
+    Load products safely and fix all Excel issues:
+    - Remove duplicate columns
+    - Normalize column names
+    - Ensure required columns exist
+    - Handle ProductList, Category, CategoryDisplay
+    """
+    
+    required_cols = [
+        "Product No", 
+        "Product", 
+        "ProductList",
+        "Supplier", 
+        "Price", 
+        "Category", 
+        "CategoryDisplay"
+    ]
 
-    # Load Excel
+    # -------- LOAD FILE --------
     df = pd.read_excel(PRODUCT_FILE)
 
-    # Remove duplicated column names
+    # -------- FIX: Remove duplicate columns --------
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Normalize column names
+    # -------- Normalize column names --------
     df.columns = df.columns.str.strip().str.lower()
 
     rename_map = {
         "productlist": "ProductList",
         "product_list": "ProductList",
         "product": "Product",
+        "product name": "Product",
         "supplier": "Supplier",
-        "price": "Price"
+        "price": "Price",
+        "product no": "Product No",
     }
     df = df.rename(columns=rename_map)
 
-    # Ensure Price numeric
-    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
-
-    # Ensure missing required columns exist
+    # -------- Ensure required columns exist --------
     for col in required_cols:
         if col not in df.columns:
             df[col] = ""
 
-    # Category extraction
-    def extract_category(x):
-        s = str(x)
+    # -------- Convert Price to numeric --------
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0)
+
+    # -------- Extract Category safely --------
+    def extract_category(val):
+        s = str(val)
         if "_" in s:
             return s.split("_")[0]
         return "General"
 
     df["Category"] = df["ProductList"].apply(extract_category)
 
+    # -------- CategoryDisplay = same as Category --------
     df["CategoryDisplay"] = df["Category"]
 
-    return df
-
-    # Generate JPG image path
+    # -------- Return cleaned dataframe --------
+    return df    # Generate JPG image path
     df["Image"] = df["Product"].astype(str).apply(generate_placeholder)
 
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0.0)
@@ -425,4 +443,5 @@ elif page == "Orders Report":
 # -------------------------
 st.sidebar.markdown("---")
 st.sidebar.write("App created: JPG image support added. PDF support:" + (" Yes" if FPDF_AVAILABLE else " No"))
+
 
